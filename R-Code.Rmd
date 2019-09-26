@@ -1,0 +1,822 @@
+---
+title: "D17129392PSICAPart2RCommands"
+author: "Sangita Sriram"
+date: "November 30, 2018"
+output: html_document
+---
+
+```{r setup, warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r set_up, warning=FALSE, include=FALSE}
+library(dplyr)
+library(rlang)
+library(ggplot2) #For creating histograms with more detail than plot
+library(psych) # Some useful descriptive functions
+library(pastecs)#Some useful descriptive functions
+library(semTools) #For skewness and kurtosis
+library(car) # For Levene's test for homogeneity of variance 
+library(pander) # For creating a table
+library(FSA)
+library(foreign) #To work with SPSS data
+library(lmSupport)#Extra functions for linear model (may require install of nloptr also)
+library(lm.beta)
+library(stargazer)#For formatting outputs/tables
+library(ppcor)
+library(lsr)
+library(userfriendlyscience)
+library(ppcor)
+library(olsrr)
+
+#Reading the dataset
+sleep_dataset<-foreign::read.spss("sleep5ED.sav",use.value.labels = TRUE,max.value.labels = Inf,to.data.frame = TRUE)
+#Setting the column names to be that used in the dataset
+colnames(sleep_dataset)<-tolower(colnames(sleep_dataset))
+
+```
+## 1. Introduction
+
+This markdown file uses the sleep dataset, which is a real data file condensed from a study conducted to explore the prevalence and impact of sleep problems on various aspects of people's lives. Staff from a university in Melbourne, Australia were invited to complete a questionnaire containing questions about their sleep behaviour (e.g. hours slept per night), sleep problems (e.g. difficulty getting to sleep) and the impact that these problems have on aspects of their lives (work, driving, relationships). The sample consisted of 271 respondents (55% female, 45% male) ranging in age from 18 to 84 years (mean=44yrs).
+
+Satisfied sleep is a very important indicator of a person's overall well-being. A person experiencing problems with their sleep, may experience problems in various aspects in their day-to-day life. A person's overall fitness, weight, mood, energy, stress, fatigue, memory, relationships can be majorly affected by a poor sleep pattern. Prolonged sleep problems could lead to increased anxiety levels of a person and will lead to a person experiencing frequent anxiety attacks. 
+
+### 1.1 Research Question
+
+A person having prolonged sleep problems could experience increased levels of anxiety. Various factors such as their stress levels, depression levels and their trouble of falling sleep could lead to them experiencing high anxiety levels. 
+This study sets out to find and analyse the various aspects of a person's life which could lead them to experiencing high levels of anxiety.
+
+###Research Question
+
+Can Anxiety levels of a person be predicted by the level of stress they experience, by their depression levels, by the trouble they experience with falling asleep and by the gender of a person? 
+
+This study intends to use multiple linear regression model to predict the anxiety levels of a person as the outcome variable; the level of stress, depression levels, trouble with falling asleep and gender of a person are the predictor variables.
+
+## 2. METHODOLOGY
+
+###2.1 Variables of interest
+The variables of interest used in this research are shown below:
+```{r variables}
+panderOptions('table.split.table', Inf)
+
+my_data <- " 
+  Variable Description          | Variable Name     | Statistical Type        | Possible Values
+  
+  HADS Anxiety Score            | anxiety           | Scale                   | Range from 4 to 10
+  
+  HADS Depression Score         | depress           | Scale                   | Range from 0 to 10
+  
+  Sex                           | sex               | Nominal                 | female; male
+
+  Stress Indicators             | stressindicators  | Scale                   | Range from 1 to 20
+  
+  Trouble falling asleep        | trubslep          | Nominal                 | yes; no"
+
+df <- read.delim(textConnection(my_data),header=FALSE,sep="|",strip.white=TRUE,stringsAsFactors=FALSE)
+names(df) <- unname(as.list(df[1,])) # put headers on
+df <- df[-1,] # remove first row
+row.names(df)<-NULL
+pander(df, style = 'rmarkdown')
+```
+
+###2.2 Handling missing data, outliers, normality
+
+Each of the variables of interest were inspected. The scale variables of interest, those representing anxiety levels, depression levels, stress indicators, were inspected for normality by creating histograms and QQ plots, inspecting standardised scores for skewness and kurtosis as well as considering the percentage of standardised scores for the variables fell outside of expected boundaries. Decisions on skewness and kurtosis were guided by the advice of George and Mallory(2011) which categorizes a distribution as normal if the relevant standardised scores for skewness and kurtosis fall in the range +/- 2 and the advice of Field, Miles and Field (2012) which categorizes a distribution as normal if 95% of the standardised scores for the variable fall within the bounds of +/-3.29 for a dataset larger than 80 cases.
+
+3 NA values were found in the Anxiety variable, they were replaced with the mean value of anxiety.
+2 NA values were found in the Depression variable, they were replaced with the mean value of depression.
+
+No outliers were found in any of the variables.
+
+###2.3 Significance level and for assessing effects
+
+An alpha level 0.05 was adopted and Cohen's conventions on effect size were adopted for all statistical tests.
+
+###2.4 Establishing evidence
+
+Correlations using Pearson correlation were done between the continuous variables of interest and the outcome variable and statistically significant correlations were found.
+
+Differences using Independent t-tests were done between the catgeorical variables of interest and the outcome variable and statistically significant differences were found.
+
+
+A multiple linear regression model will be used in this study to predict the anxiety levels of respondents by using depression levels, stress indicators, trouble of falling asleep and gender as the predictors.
+
+
+###2.5 Inspecting continuous variables of interest
+ 
+####Total HADS Anxiety Score (anxiety)
+```{r, warning=FALSE, fig.width=10, fig.align='center', warning=FALSE}
+
+# Descriptive statistics
+# to get summary statistics for a variable
+stat.desc(sleep_dataset$anxiety,basic = FALSE)
+
+sum(is.na(sleep_dataset$anxiety)) #There are 3 NA values in anxiety
+
+mean_anxiety <- round(mean(na.omit(sleep_dataset$anxiety))) #getting the mean value of anxiety
+
+sleep_dataset$anxiety <- ifelse(is.na(sleep_dataset$anxiety), mean_anxiety, sleep_dataset$anxiety)
+#Replacing NA values with mean values of anxiety
+
+#skewness and kurtosis from semTools with standard error 
+anxietyskew<-semTools::skew(sleep_dataset$anxiety)
+anxietyskew
+anxietykurt<-semTools::kurtosis(sleep_dataset$anxiety)
+anxietykurt
+
+#divide the skew statistic by the standard error to get the standardised score (Z-scores)
+anxietystd_skew<-anxietyskew[1]/anxietyskew[2]
+anxietystd_kurt<-anxietykurt[1]/anxietykurt[2]
+anxietystd_skew 
+anxietystd_kurt 
+
+# filter out the rows with a standardised value outsude the range
+head(sort(scale(sleep_dataset$anxiety)))
+tail(sort(scale(sleep_dataset$anxiety)))
+
+outliers1<-sleep_dataset%>%
+  filter( scale(anxiety)> 3.29 | scale(anxiety) < -3.29) # +/-3.29 taken because data is larger than 80 cases
+#count them using dplyr summarize
+num_outliers1<-outliers1 %>%
+  summarise(count=n())
+fullcount1<-sleep_dataset %>%
+  summarise(count=n())
+num_outliers1
+fullcount1
+outliers1
+
+```
+
+```{r echo=FALSE, message=FALSE}
+# Create the histogram to check for normal disribution
+
+gg<-ggplot(sleep_dataset,aes(x=sleep_dataset$anxiety))
+# change label for x-axis and y-axis
+gg<-gg+labs(x='Total anxiety', y='Density')
+# manage binwidth and colours for histogram
+gg<-gg+geom_histogram(binwidth = 2,colour='black',aes(y=..density..,fill=..count..))
+gg<-gg+scale_fill_gradient("Count",low="#DCDCDC", high="#7C7C7C")
+#adding normal curve to histogram
+gg<-gg+stat_function(fun = dnorm,color="red",args = list(mean=mean(sleep_dataset$anxiety,na.rm = TRUE),sd=sd(sleep_dataset$anxiety,na.rm = TRUE)))
+# add title to the plot
+gg<-gg+ggtitle('Figure 1: Distribution HADS anxiety')
+gg
+
+# Create QQ Plot
+qqnorm(sleep_dataset$anxiety, main = "Figure 2: QQplot for HADS anxiety")
+qqline(sleep_dataset$anxiety,col=2) # show line on the plot
+
+# Perform Kolmogorov-Smirnov Normality Test, if p-value<0.05, we can reject null hypothesis that the
+# data is normally distributed
+
+# KS Normality Test (performed when samples>80)
+ks.test(sleep_dataset$anxiety,"pnorm",mean=mean(sleep_dataset$anxiety,na.rm = TRUE),sd=sd(sleep_dataset$anxiety,na.rm = TRUE)) # p-value = .007
+
+```
+####Normality Analysis of HADS Anxiety Score
+
+Inspection of the histogram and normality plot (see figure 1 and figure 2) shows that the distribution is approaching a normal distribution. Inspection of standardized normal scores for skewness and kurtosis indicated that while both skewness and kurtosis were falling within the acceptable range of +/-2, (skewness of `r anxietyskew[1]` SE=`r anxietyskew[2]`), (kurtosis of `r anxietykurt[1]` SE=`r anxietykurt[2]`. Further inspection of the variable using standardized scores showed that only `r round((num_outliers1/fullcount1)*100, digits=2)`% were outside the acceptable range of +/-3.29. 
+Further analysis of the variable with Kolmogorov-Smirnov Test normality test, we found the p-value = .008 (which is less than standard value of .05) which rejects the null hypothesis that the data is normaly distributed. (The majority results of ks test is proved to be not normal and here we are not solely relying on this test for normality detection)
+Hence, from above observations anxiety will therefore be treated as normal within this analysis (md =`r median(sleep_dataset$anxiety, na.rm=TRUE)`,n=`r nrow(sleep_dataset)-sum(is.na(sleep_dataset$anxiety))`).
+
+###2.6 Total HADS Depression
+
+#### Code for inspecting the variable
+```{r, warning=FALSE, warning=FALSE, fig.width=10, fig.align='center'}
+
+# Descriptive statistics
+
+# to get summary statistics for a variable
+stat.desc(sleep_dataset$depress,basic = FALSE)
+
+sum(is.na(sleep_dataset$depress)) #2 NA values
+meandepress <- round(mean(na.omit(sleep_dataset$depress)))
+
+sleep_dataset$depress <- ifelse(is.na(sleep_dataset$depress), meandepress, sleep_dataset$depress)
+
+#skewness and kurtosis from semTools with standard error 
+depress_skew<-semTools::skew(sleep_dataset$depress)
+depress_skew
+depress_kurt<-semTools::kurtosis(sleep_dataset$depress)
+depress_kurt
+
+#divide the skew statistic by the standard error to get the standardised score (Z-scores)
+depress_std_skew<-depress_skew[1]/depress_skew[2]
+depress_std_kurt<-depress_kurt[1]/depress_kurt[2]
+
+# filter out the rows with a standardised value outsude the range
+outliers<-sleep_dataset%>%
+  filter( scale(depress)> 3.29 | scale(depress) < -3.29) # +/-3.29 taken because data is larger than 80 cases
+#count them using dplyr summarize
+num_outliers<-outliers %>% summarise(count=n())
+fullcount<-sleep_dataset %>% summarise(count=n())
+num_outliers
+fullcount
+outliers
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+# Create the histogram to check for normal disribution
+
+gg<-ggplot(sleep_dataset,aes(x=sleep_dataset$depress))
+# change label for x-axis and y-axis
+gg<-gg+labs(x='Total Depression', y='Density')
+# manage binwidth and colours for histogram
+gg<-gg+geom_histogram(binwidth = 2,colour='black',aes(y=..density..,fill=..count..))
+gg<-gg+scale_fill_gradient("Count",low="#DCDCDC", high="#7C7C7C")
+#adding normal curve to histogram
+gg<-gg+stat_function(fun = dnorm,color="red",args = list(mean=mean(sleep_dataset$depress,na.rm = TRUE),sd=sd(sleep_dataset$depress,na.rm = TRUE)))
+# add title to the plot
+gg<-gg+ggtitle('Figure 3: Distribution Total Depression')
+gg
+
+# Create QQ Plot
+qqnorm(sleep_dataset$depress, main = "Figure 4: QQplot for Total Depression")
+qqline(sleep_dataset$depress,col=2) # show line on the plot
+
+# Perform Kolmogorov-Smirnov Normality Test, if p-value<0.05, we can reject null hypothesis that the
+# data is normally distributed
+
+# KS Normality Test (performed when samples>80)
+ks.test(sleep_dataset$depress,"pnorm",mean=mean(sleep_dataset$depress,na.rm = TRUE),sd=sd(sleep_dataset$depress,na.rm = TRUE)) # p-value = .002
+
+```
+
+#### Report of Normality Analysis
+
+Total HADS Depression is represented by a scale variable in the dataset. Inspection of standardized normal scores for skewness and kurtosis indicated that while both skewness and kurtosis were falling within the acceptable range of +/-2, (skewness of `r depress_skew[1]` SE=`r depress_skew[2]`), (kurtosis of `r depress_kurt[1]` SE=`r depress_kurt[2]`. On further inspection using plots like histogram and normality plot (figure 3 and figure 4), we found that the distribution is not normal and is positively skewed. On inspection of the count of outliers, we found only `r num_outliers` or `r round((num_outliers/fullcount)*100, digits=2)`% standardised scores were outside the acceptable range of +/- 3.29 which implies none of the values is outside the 95% Confidence Interval. 
+
+Further analysis of the variable with Kolmogorov-Smirnov Test normality test, we found the p-value = .002 (which is less than standard value of .05) which rejects the null hypothesis that the data is normaly distributed. (The majority results of ks test is proved to be not normal and here we are not solely relying on this test for normality detection). Conclusively, based on the tests, we can say that the data for Total HADS Depression variable will therefore be treated as a normal within this analysis (*M* = `r mean(sleep_dataset$depress, na.rm=TRUE)`, *SD* = `r sd(sleep_dataset$depress, na.rm=TRUE)`, *N* = `r length(sleep_dataset$depress)-sum(is.na(sleep_dataset$depress))`).
+
+
+###2.7 Stress Indicators (stressmo+impact1)
+```{r, warning=FALSE, fig.width=10, fig.align='center'}
+#Creating a new scale variable called stressindicator by adding up the variables stressmo and impact1(mood)
+
+sum(is.na(sleep_dataset$impact1)) #148 NA values
+impact1<-(sleep_dataset$impact1)
+impact1<-ifelse(is.na(sleep_dataset$impact1),0,sleep_dataset$impact1) #Setting NA values to zero
+impact1<-gsub("not at all","1",impact1)
+impact1<-gsub("to a great extent","10",impact1)
+impact1<-as.numeric(impact1)
+length(impact1)
+
+sum(is.na(sleep_dataset$stressmo)) #Zero Na values
+stressmo<-(sleep_dataset$stressmo)
+stressmo<-gsub("not at all","1",stressmo)
+stressmo<-gsub("extremely stressed","10",stressmo)
+stressmo<-as.integer(as.numeric(stressmo))
+length(stressmo)
+
+sleep_dataset$stressindicators <- impact1+stressmo
+
+sum(is.na(sleep_dataset$stressindicators)) #Zero NA values
+
+# Descriptive statistics
+
+# to get summary statistics for a variable
+stat.desc(sleep_dataset$stressindicators, basic = FALSE)
+
+head(sort(scale(sleep_dataset$stressindicators)))
+tail(sort(scale(sleep_dataset$stressindicators)))
+
+#skewness and kurtosis from semTools with standard error 
+stressindicatorskew<-semTools::skew(sleep_dataset$stressindicators)
+stressindicatorskew
+stressindicatorskurt<-semTools::kurtosis(sleep_dataset$stressindicators)
+stressindicatorskurt
+
+#divide the skew statistic by the standard error to get the standardised score (Z-scores)
+stressindicatorskew[1]/stressindicatorskew[2]
+stressindicatorskurt[1]/stressindicatorskurt[2]
+
+# filter out the rows with a standardised value outsude the range
+outliers2<-sleep_dataset%>%
+  filter( scale(stressindicators) > 3.29 | scale(stressindicators) < -3.29) # +/-3.29 taken because data is larger than 80 cases
+#count them using dplyr summarize
+num_outliers2<-outliers2 %>%
+  summarise(count=n())
+fullcount2<-sleep_dataset %>%
+  summarise(count=n())
+num_outliers2
+fullcount2
+outliers2
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+# Create the histogram to check for normal disribution
+gg<-ggplot(sleep_dataset,aes(x=sleep_dataset$stressindicators))
+
+# change label for x-axis and y-axis
+gg<-gg+labs(x='Total Stress', y='Density')
+# manage binwidth and colours for histogram
+gg<-gg+geom_histogram(binwidth = 2,colour='black',aes(y=..density..,fill=..count..))
+gg<-gg+scale_fill_gradient("Count",low="#DCDCDC", high="#7C7C7C")
+#adding normal curve to histogram
+gg<-gg+stat_function(fun = dnorm,color="red",args = list(mean=mean(sleep_dataset$anxiety,na.rm = TRUE),sd=sd(sleep_dataset$anxiety,na.rm = TRUE)))
+# add title to the plot
+gg<-gg+ggtitle('Figure 5: Distribution of Stress Indicators')
+gg
+
+# Create QQ Plot
+qqnorm(sleep_dataset$stressindicators, main = "Figure 6: QQplot for Stress Indicators")
+qqline(sleep_dataset$stressindicators,col=2) # show line on the plot
+
+# Perform Kolmogorov-Smirnov Normality Test, if p-value<0.05, we can reject null hypothesis that the
+# data is normally distributed
+
+# KS Normality Test (performed when samples>80)
+ks.test(sleep_dataset$stressindicators,"pnorm",mean=mean(sleep_dataset$stressindicators,na.rm = TRUE),sd=sd(sleep_dataset$stressindicators,na.rm = TRUE)) # p-value = .007
+
+```
+####Normality Analysis
+A new variable stressindicators was created for the purpose of this study by adding the variables stressmo and impact1. The new variable stressindicators is a considered as a continuous variable for this study.
+
+Inspection of the histogram and normality plot shows that the distribution is approaching a normal distribution. Inspection of standardized normal scores for skewness and kurtosis indicated that while both skewness and kurtosis were falling within the acceptable range of +/-2, (skewness of `r stressindicatorskew[1]` SE=`r stressindicatorskew[2]`), (kurtosis of `r stressindicatorskurt[1]` SE=`r stressindicatorskurt[2]`. Further inspection of the variable using standardized scores showed that only `r round((num_outliers2/fullcount2)*100, digits=2)`% were outside the acceptable range of +/3.29.
+
+Further analysis of the variable with Kolmogorov-Smirnov Test normality test, we found the p-value = .002 (which is less than standard value of .05) which rejects the null hypothesis that the data is normally distributed. (The majority results of ks test is proved to be not normal and here we are not solely relying on this test for normality detection).
+
+Hence, from above observations stressindicators will therefore be treated as normal within this analysis (md =`r median(sleep_dataset$stressindicators, na.rm=TRUE)`,n=`r nrow(sleep_dataset)-sum(is.na(sleep_dataset$stressindicators))`).
+
+### Inspecting categorical variables of interest
+
+###2.8 GENDER (SEX)
+
+Gender is represented by a categorical variable in the dataset. The dataset contains data from 150 female respondents and 121 male respondents.
+
+####Table
+```{r warning=FALSE}
+table(sleep_dataset$sex)
+```
+
+####Descriptive statistics by group
+```{r warning=FALSE}
+describeBy(sleep_dataset$hourneed,group = sleep_dataset$sex)
+```
+
+####Box plot
+```{r}
+boxplot(sleep_dataset$anxiety ~ sleep_dataset$sex, xlab ="Gender", ylab = "Levels of Anxiety", main ="Figure 7: Box plot for Hours of sleep needed not to feel sleepy and Gender")
+```
+
+###2.9 TROUBLE FALLING ASLEEP (TRUBSLEP)
+
+Trubslep is represented by a categorical variable in the dataset. The dataset contains data from 106 respondents who said yes and 163 respondents who said no.
+
+####Table
+```{r warning=FALSE}
+table(sleep_dataset$trubslep)
+```
+
+####Descriptive statistics by group
+```{r warning=FALSE}
+describeBy(sleep_dataset$anxiety,group = sleep_dataset$trubslep)
+```
+
+####Box plot
+```{r echo=FALSE, message=FALSE}
+boxplot(sleep_dataset$anxiety ~ sleep_dataset$trubslep, xlab ="Trouble Falling Asleep", ylab = "Levels of Anxiety", main ="Figure 8: Box plot for Anxiety levels and trouble falling asleep")
+```
+
+##3. RESULTS
+An alpha level .05 was adopted and Cohen's conventions on effect size were adopted for all statistical tests (Field, Miles & Field, 2012).
+
+###Hypothesis 1
+H0: There is no correlation between HADS Anxiety Score and HADS Depression Score
+HA: There is a correlation between HADS Anxiety Score and HADS Depression Score
+
+#### Scatterplot
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+scatter <- ggplot(sleep_dataset,aes(x=sleep_dataset$anxiety,y=sleep_dataset$depress)) + geom_point() + ggtitle("Figure 9: Scatterplot of HADS Anxiety and Depression") + labs(x="sleep_dataset$anxiety",y="sleep_dataset$hourwnit")
+scatter <- scatter + geom_smooth(method='lm',se=F,colour="Red")
+scatter
+```
+
+
+#### Pearson product-moment correlation
+```{r warning=FALSE}
+
+cor.test(sleep_dataset$anxiety, sleep_dataset$depress, method = "pearson") 
+
+# calculate covariance
+covariance_data<-data.frame(sleep_dataset$anxiety, sleep_dataset$depress)
+covariance_data<-na.omit(covariance_data)
+covariance<-cov(covariance_data$sleep_dataset.anxiety,covariance_data$sleep_dataset.depress, method = "pearson")
+covariance
+```
+
+#### Reporting correlation
+
+A Pearson product-moment correlation coefficient is computed to assess the relationship between Total HADS Anxiety and hours of sleep on each weeknight. A strong positive correlation between Total HADS Anxiety and hours of sleep on each weeknight was found (r = 0.59, n = 266, p < 0.05). Total HADS Anxiety and hours of sleep on each weeknight have shared variance `r (0.59*0.59) * 100` of 34.81% and covariance of `r covariance` . The p-value is less than the significance level of 0.05, which suggests that there is sufficient evidence to reject the null hypothesis that there is no correlation between HADS Anxiety Score and HADS Depression Score. Based on the test, there is enough evidence to suggest that there is a strong positive correlation between Total HADS Anxiety Score and HADS Depression Score and sufficient evidence to conclue that this relationship didn't occur due to random chance. 
+ 
+
+###Hypothesis 2
+H0: There is no correlation between HADS Anxiety Score and stress indicators
+HA: There is a correlation between HADS Anxiety Score and stress indicators
+
+#### Scatterplot
+```{r warning=FALSE , echo=FALSE, message=FALSE}
+scatter <- ggplot(sleep_dataset,aes(x=sleep_dataset$anxiety,y=sleep_dataset$stressindicators)) + geom_point() + ggtitle("Figure 10: Scatterplot of anxiety and stress indicators") + labs(x="sleep_dataset$anxiety",y="sleep_dataset$stressindicators")
+scatter <- scatter + geom_smooth(method='lm',se=F,colour="Red")
+scatter
+```
+
+
+#### Pearson product-moment correlation
+```{r warning=FALSE}
+
+cor.test(sleep_dataset$anxiety,sleep_dataset$stressindicators,method = "pearson") 
+# calculate covariance
+covariance2<-data.frame(sleep_dataset$anxiety,sleep_dataset$stressindicators)
+covariance2<-na.omit(covariance2)
+covariance2<-cov(covariance2$sleep_dataset.anxiety,covariance2$sleep_dataset.stressindicators,
+    method = "pearson")
+covariance2
+```
+
+#### Reporting correlation
+A Pearson product-moment correlation coefficient is computed to assess the relationship between Total HADS Anxiety and stress indicators. A strong positive correlation between Total HADS Anxiety and stress indicators was found (r = 0.52, n = 266, p < 0.05). Total HADS Anxiety and stress indicators have shared variance `r (0.52*0.52) *100` of 27.04% and covariance of `r covariance2` . The p-value is less than the significance level of 0.05, which suggests that there is sufficient evidence to reject the null hypothesis that there is no correlation between anxiety and stress indicators. Based on the test, there is enough evidence to suggest that there is a strong correlation between Total HADS Anxiety and stress indicators and sufficient evidence to conclude that this relationship didn't occur due to random chance. 
+
+
+###Hypothesis 3
+
+H0: There is no correlation between HADS Depression Score and stress indicators
+HA: There is a correlation between HADS Depression Score and stress indicators
+
+#### Scatterplot
+```{r warning=FALSE, echo=FALSE, message=FALSE}
+scatter <- ggplot(sleep_dataset,aes(x=sleep_dataset$hourwnit,y=sleep_dataset$stressindicators)) + geom_point() + ggtitle("Figure 11: Scatterplot of HADS Depression Score and stress indicators") + labs(x="sleep_dataset$depress",y="sleep_dataset$stressindicators")
+scatter <- scatter + geom_smooth(method='lm',se=F,colour="Red")
+scatter
+```
+
+
+
+#### Pearson product-moment correlation
+```{r warning=FALSE}
+cor.test(sleep_dataset$depress,sleep_dataset$stressindicators,method = "pearson") 
+# calculate covariance
+covariance3<-data.frame(sleep_dataset$depress,sleep_dataset$stressindicators)
+covariance3<-na.omit(covariance3)
+covariance3<-cov(covariance3$sleep_dataset.depress,covariance3$sleep_dataset.stressindicators,
+    method = "pearson")
+covariance3
+```
+
+#### REPORT OF NORMALITY ANALYSIS
+A Pearson product-moment correlation coefficient is computed to assess the relationship between HADS Depression Score and stress indicators. A more than moderate positive correlation between stress indicators and HADS Depression Score was found (r = 0.4, n = 269, p < 0.05). Stress indicators and HADS Depression Score have shared variance `r (0.4*0.4) *100` of 16% and covariance of `r covariance3` . The p-value is less than the significance level of 0.05, which suggests that there is sufficient evidence to reject the null hypothesis, that there is no correlation between stress indicators and HADS Depression Score. Based on the test, there is enough evidence to suggest that there is a significant more than moderate positive correlation between HADS Depression Score and stress indicators.
+
+###Hypothesis 4:
+
+H0:There is no difference in HADS Anxiety Score for respondents who have trouble falling asleep and those who do not have a trouble falling asleep .
+
+HA:There is a difference in HADS Anxiety Score for respondents who have trouble falling asleep and those who do not have a trouble falling asleep.
+
+####Samples Independent t-test
+```{r warning=FALSE }
+#Conduct Levene's test for homogeneity of variance in library car
+ltest<-car::leveneTest(anxiety ~ trubslep, data=sleep_dataset)
+ltest
+#p-value is < 0.05, variances are not equal
+
+describeBy(sleep_dataset$anxiety,group=sleep_dataset$trubslep)
+
+#Conduct the t-test from package stats
+ttest <- stats::t.test(anxiety~trubslep, data=sleep_dataset, var.equal= F)
+ttest
+
+tSq <- 4.94*4.94
+
+eta <- tSq / (tSq+264)
+eta
+``` 
+
+#### REPORT OF NORMALITY ANALYSIS
+A Levene's test for homogeneity of variance was conducted and indicated inequality of variance for HADS Anxiety Score in respondents who have trouble falling asleep and those who do not have a trouble falling asleep.(F=5.25, P=0.02). An independent-samples t-test was conducted to compare HADS Anxiety Score in respondents who have trouble falling asleep and those who do not have a trouble falling asleep. Significant difference in the HADS Anxiety Score was found.(M=7.64, SD=3.7) for respondents who have trouble falling asleep, (M= 5.49, SD=3.07) for respondents who do not have trouble falling asleep, (t= 4.94, p = 0.02). As the p-value is less than 0.05, there is sufficient evidence to reject the null hypothesis that there is no difference in HADS Anxiety Score for respondents who have trouble falling asleep and those who do not have a trouble falling asleep. The eta square statistic indicated a more than moderate size (0.08). Based on the results, there does seem to be a large and statistically significant difference in HADS Anxiety Score between respondents who have trouble falling asleep and those who do not have a trouble falling asleep.
+
+###Hypothesis 5:
+
+H0:There is no difference in HADS Anxiety Score for respondents of different gender.
+
+HA:There is a difference in HADS Anxiety Score for respondents of different gender.
+
+#### 2 samples Independent t-test
+```{r warning=FALSE}
+
+#Conduct Levene's test for homogeneity of variance in library car
+ltest<-car::leveneTest(anxiety~sex, data=sleep_dataset)
+ltest
+#p-value is greater than 0.05, variances are equal
+
+describeBy(sleep_dataset$anxiety,group=sleep_dataset$sex)
+
+#Conduct the t-test from package stats
+ttest <- stats::t.test(anxiety~sex, data=sleep_dataset, var.equal= T)
+ttest
+
+tSq <- 4.15*4.15
+
+eta <- tSq / (tSq+266)
+eta
+``` 
+
+#### REPORT OF NORMALITY ANALYSIS
+A Levene's test for homogeneity of variance was conducted and indicated inequality of variance for HADS Anxiety Score in respondents of different genders (F=0.001, P=0.97). An independent-samples t-test was conducted to compare HADS Anxiety Score in respondents of different genders. Significant difference in the HADS Anxiety Score was found.(M=7.12, SD=3.44) for female respondents, (M= 5.39, SD=3.33) for male respondents, (t= 4.15, p < 0.05). As the p-value is less than 0.05, there is sufficient evidence to reject the null hypothesis that there is no difference in HADS Anxiety Score for respondents of different genders. The eta square statistic indicated a more than moderate effect size (0.08). Based on the results, there does seem to be a more than moderate statistically significant difference in HADS Anxiety Score between respondents of different genders.
+
+
+###HYPOTHESIS 6
+
+H0: The HADS Anxiety Score cannot be predicted by HADS Depression Score and stress indicators
+HA: The HADS Anxiety Score can be predicted by HADS Depression Score and stress indicators
+
+####Anxiety predicted by stress indicators and HADS Depression Score - BASE MODEL
+```{r warning=FALSE}
+
+#Standardizing the variables using scale function
+anxiety <- scale(sleep_dataset$anxiety)
+stressindicators <- scale(sleep_dataset$stressindicators)
+depress <- scale(sleep_dataset$depress)
+
+model1<-lm(anxiety ~ stressindicators + depress)
+anova(model1)
+summary(model1)
+lm.beta(model1)
+stargazer(model1, type="text") #Tidy output of all the required stats
+
+#Cooks distance
+model1_cooksdist <- data.frame(cooks.distance(model1))
+
+filter(model1_cooksdist, cooks.distance.model1. > 1) #All the values are lesser than 1
+max(cooks.distance(model1))
+
+```
+
+```{r echo=FALSE, message=FALSE}
+plot(model1)
+
+#Plot Cooks distance
+plot(cooks.distance(model1), ylab="Cook's statistic")
+
+#Create histogram
+#A density plot of the residuals
+plot(density(resid(model1))) 
+```
+
+```{r warning=FALSE}
+#Checking for Collinearity
+vifmodel1<-vif(model1)
+sqrt(vifmodel1) #Less than 2.5
+#Calculate tolerance
+1/vifmodel1 #Greater than 0.4
+
+#Data has met the assumption of collinearity
+
+#Checking for independent errors
+durbinWatsonTest(model1)
+
+```
+
+#### REPORT OF MODEL 1
+A multiple linear regression analysis was conducted to determine if a respondent's anxiety level could be prdedicted by their depression level and by stress indicators (which is the sum of how much stress they felt in the last month and the impact on mood). A significant regression equation was found (F(2,265)=106.9, p < 0.05) with an adjusted R2 of 0.44. A respondent's anxiety score is equal to 0.0006 + 0.34(stressindicators) + 0.45(depress), where both stress indicators and depression level are standardised continuous variables.
+
+The respondent's standardised anxiety level increases 0.34 standard deviations for each standard deviation increase in stress indicators. The respondent's standardised anxiety level increases 0.45 standard deviations for each standard deviation increase in depression level.
+
+Both stress indicators (p<0.05) and depression level (p<0.05) were significant predictors of anxiety level.
+
+Examination of the histogram, density plot, normal Q-Q plot of standardised residuals and the scatterplot of the dependent variable, anxiety level, and standardised residuals showed all points were close to the line. However, examination of the minimum and maximum value of standardised residuals showed that none could be considered to have undue influence (95% within limits of -3.29 to +3.29 and none with Cook's distance > 1 as outlined in Field (2013) ) (Max Cooks Distance = 0.07). 
+
+An analysis of standard residuals was carried out, which showed that the data contained no outliers (Std. Residual Min = -2.02, Std. Residual Max = 2.67).
+
+Tests to see if the data met the assumption of collinearity indicated that multicollinearity was not a concern (Stressindicators, *tolerance* = 0.84, *VIF* = 1.09; Depress, *tolerance* = 0.84, *VIF* = 1.09) influence factor measures were within acceptable levels (*tolerance* > 0.4, *VIF* < 2.5) as outlined in Tarling (2008). The scatterplot of standardised residuals showed that the data met the assumptions of homogeneity of variance and linearity. The data also meets the assumption of non-zero variances of the predictors.  
+
+Thus, there is sufficient evidence to reject the null hypothesis that the HADS Anxiety Score cannot be predicted by HADS Depression Score and stress indicators. Based on the results, we can conclude that the Depression level of a respondent and their stress indicator levels do have a strong significant influence on a respondent's Anxiety levels.
+
+###HYPOTHESIS 7
+
+H0: The HADS Anxiety Score cannot be predicted by HADS Depression Score, stress indicators and Trouble falling asleep 
+HA: The HADS Anxiety Score can be predicted by HADS Depression Score, stress indicators and Trouble falling asleep
+
+
+###Model 2 - Anxiety predicted by stress indicators, depression level and trouble falling asleep
+```{r warning=FALSE }
+
+sleep_dataset$trubsleeping <- recode(sleep_dataset$trubslep,"'yes'=1;'no'=2")
+
+sleep_dataset$trubslep1 <- relevel(sleep_dataset$trubslep, ref=2)
+
+model2<-lm(anxiety~stressindicators+depress+sleep_dataset$trubslep1)
+anova(model2)
+summary(model2)
+lm.beta(model2)
+stargazer(model2, type="text") #Tidy output of all the required stats
+
+#Cooks distance
+model2_cooksdist <- data.frame(cooks.distance(model2))
+
+filter(model2_cooksdist, cooks.distance.model2. > 1) #All the values are lesser than 1
+max(cooks.distance(model2))
+
+#Collinearity
+vifmodel2<-vif(model2)
+sqrt(vifmodel2) #less than 2.5
+#Calculate tolerance
+1/vifmodel2
+
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+plot(model2)
+
+#Plot Cooks distance
+plot(cooks.distance(model2), ylab="Cook's statistic")
+
+#Create histogram
+#A density plot of the residuals
+plot(density(resid(model2)))
+
+```
+####REPORT OF MODEL 2
+
+A multiple linear regression analysis was conducted to determine if a respondent's anxiety level could be prdedicted by the continuous variables depression level, stress indicators (which is the sum of how much stress they felt in the last month and the impact on mood) and by the categorical variable trouble falling asleep. A statistically significant regression equation was found (F(3,262) = 75.45, p < 0.05) with an adjusted R2 of 0.46. A respondent's anxiety score is equal to -0.12 + 0.29(stressindicators) + 0.45(depress) + 0.31(trouble sleeping), where stress indicators and depression level are standardised continuous variables.
+
+The respondent's standardised anxiety level increases 0.29 standard deviations for each standard deviation increase in stress indicators. The respondent's standardised anxiety level increases 0.45 standard deviations for each standard deviation increase in depression level. The respondent's standardised anxiety level increased 0.31 times for respondents who answered yes to the question if they have a trouble falling asleep.  
+
+All the variables stress indicators (p<0.05), depression level (p<0.05) and trouble sleeping (p<0.05) were significant predictors of anxiety level.
+
+Examination of the histogram, density plot, normal Q-Q plot of standardised residuals and the scatterplot of the dependent variable, anxiety level, and standardised residuals showed all points were close to the line. However, examination of the minimum and maximum value of standardised residuals showed that none could be considered to have undue influence (95% within limits of -3.29 to +3.29 and none with Cook's distance > 1 as outlined in Field (2013) ) (Max Cooks Distance = 0.06). 
+
+An analysis of standard residuals was carried out, which showed that the data contained no outliers (Std. Residual Min = -1.94, Std. Residual Max = 2.5).
+
+Tests to see if the data met the assumption of collinearity, indicated that multicollinearity was not a concern (Stressindicators, *tolerance* = 0.78, *VIF* = 1.13; Depress, *tolerance* = 0.84, *VIF* = 1.09; Trouble sleeping, *tolerance* = 0.92, *VIF* = 1.04 ) influence factor measures were within acceptable levels (*tolerance* > 0.4, *VIF* < 2.5) as outlined in Tarling (2008). The scatterplot of standardised residuals showed that the data met the assumptions of homogeneity of variance and linearity. The data also meets the assumption of non-zero variances of the predictors.  
+
+Thus, there is sufficient evidence to reject the null hypothesis that the HADS Anxiety Score cannot be predicted by HADS Depression Score, stress indicators and trouble falling asleep. Based on the results, we can conclude that the Depression level of a respondent, their stress indicator levels and based on a respondent's trouble falling asleep, do have a significant influence on a respondent's Anxiety levels.
+
+###HYPOTHESIS 8
+
+H0: The HADS Anxiety Score of a respondent cannot be predicted by HADS Depression Score, stress indicators, Trouble falling asleep and gender of the respondents.
+
+HA: The HADS Anxiety Score of a respondent can be predicted by HADS Depression Score, stress indicators, Trouble falling asleep and gender of the respondents.
+
+
+#### Model 3 - Anxiety predicted by stress indicators and hours slept on week night, trouble falling asleep and gender
+```{r warning=FALSE}
+sum(is.na(sleep_dataset$gender)) #0 NA values
+
+sleep_dataset$gender <- recode(sleep_dataset$sex,"'male'=1;'female'=2")
+
+sleep_dataset$gender1 <- relevel(sleep_dataset$gender, ref=1)
+sleep_dataset$trubslep1 <- relevel(sleep_dataset$trubslep, ref=2)
+
+model3<-lm(anxiety ~ sleep_dataset$gender1 + sleep_dataset$trubslep1 + depress + stressindicators)
+anova(model3)
+summary(model3)
+lm.beta(model3)
+stargazer(model3, type="text") #Tidy output of all the required stats
+
+#Cooks distance
+model3_cooksdist <- data.frame(cooks.distance(model3))
+filter(model3_cooksdist, cooks.distance.model3. > 1) #All the values are lesser than 1
+max(cooks.distance(model1)) #0.07
+
+#Collinearity
+vifmodel3<-vif(model3)
+sqrt(vifmodel3)
+#Calculate tolerance
+1/vifmodel3
+```
+
+```{r echo=FALSE, warning=FALSE}
+
+plot(model3)
+
+#Plot Cooks distance
+plot(cooks.distance(model3), ylab="Cook's statistic")
+
+#Create histogram
+#A density plot of the residuals
+plot(density(resid(model3))) 
+
+```
+#### REPORT OF MODEL 3
+
+A multiple linear regression analysis was conducted to determine if a respondent's anxiety level could be prdedicted by the continuous variables depression level, stress indicators (which is the sum of how much stress they felt in the last month and the impact on mood) and by the categorical variables trouble falling asleep and gender. A statistically significant regression equation was found (F(4,261) = 62.57, p < 0.05) with an adjusted R2 of 0.48. A respondent's anxiety score is equal to -0.29 + 0.27(stressindicators) + 0.45(depress) + 0.3(trouble sleeping) + 0.33(gender), where stress indicators and depression level are standardised continuous variables.
+
+The respondent's standardised anxiety level increases 0.27 standard deviations for each standard deviation increase in stress indicators. The respondent's standardised anxiety level increases 0.45 standard deviations for each standard deviation increase in depression level. The respondent's standardised anxiety level increased 0.3 times for respondents who answered yes to the question if they have a trouble falling asleep. The respondent's standardised anxiety level increased 0.33 times for female respondents.
+
+All the variables stress indicators (p<0.05), depression level (p<0.05), trouble sleeping (p<0.05) and gender(p<0.05) were significant predictors of anxiety level.
+
+Examination of the histogram, density plot, normal Q-Q plot of standardised residuals and the scatterplot of the dependent variable, anxiety level, and standardised residuals showed all points were close to the line. However, examination of the minimum and maximum value of standardised residuals showed that none could be considered to have undue influence (95% within limits of -3.29 to +3.29 and none with Cook's distance > 1 as outlined in Field (2013) ) (Max Cooks Distance = 0.07). 
+
+An analysis of standard residuals was carried out, which showed that the data contained no outliers (Std. Residual Min = -2.06, Std. Residual Max = 2.37).
+
+Tests to see if the data met the assumption of collinearity, indicated that multicollinearity was not a concern (Stressindicators, *tolerance* = 0.77, *VIF* = 1.14; Depress, *tolerance* = 0.84, *VIF* = 1.09; Trouble sleeping, *tolerance* = 0.92, *VIF* = 1.04; Gender, *tolerance* = 0.97, *VIF* = 1.01 ) influence factor measures were within acceptable levels (*tolerance* > 0.4, *VIF* < 2.5) as outlined in Tarling (2008). The scatterplot of standardised residuals showed that the data met the assumptions of homogeneity of variance and linearity. The data also meets the assumption of non-zero variances of the predictors.  
+
+Thus, there is sufficient evidence to reject the null hypothesis that the HADS Anxiety Score cannot be predicted by HADS Depression Score, stress indicators, trouble falling asleep and gender. Based on the results, we can conclude that the Depression level of a respondent, their stress indicator levels, a respondent's trouble falling asleep and their gender, do have a strong significant influence on a respondent's Anxiety levels.
+
+### Comparison of Models
+```{r }
+
+stargazer(model1,model2,model3, type="text")
+
+```
+##4. Test Data
+
+```{r }
+
+#splitting dataset into train and test
+sleep_data <- sleep_dataset[c("id","anxiety","stressindicators","depress","gender1","trubslep1")]
+
+sleep_data <- na.omit(sleep_data)
+
+sum(is.na(sleep_data))
+
+sleep_data$anxiety<-scale(sleep_data$anxiety)
+sleep_data$depress<-scale(sleep_data$depress)
+sleep_data$stressindicators<-scale(sleep_data$stressindicators)
+
+set.seed(101)
+
+sample_data <- sample.int(n = nrow(sleep_data), size = floor(.85*nrow(sleep_data)), replace = F)
+
+sleep_datatrain <- sleep_data[sample_data, ]
+nrow(sleep_datatrain) #228
+
+sleep_datatest  <- sleep_data[-sample_data, ]
+nrow(sleep_datatest) #41
+
+#Testing with the test data with my model 3
+model3_train <- lm(sleep_datatrain$anxiety ~ sleep_datatrain$gender1 + sleep_datatrain$trubslep1 + sleep_datatrain$depress + sleep_datatrain$stressindicators)
+summary(model3_train)
+
+PredictedAnxiety <- as.numeric(-0.26 + (0.28 * sleep_datatrain$stressindicators) + (0.44*sleep_datatrain$depress) + (0.34*as.numeric(sleep_datatrain$trubslep1)) + (0.3*as.numeric(sleep_datatrain$gender1)))
+
+#Correlation is performed between training data's actual anxiety score versus the predicted anxiety score found using model 3
+cor.test(sleep_datatrain$anxiety,PredictedAnxiety,method="pearson")
+
+#test data
+model3_test <- lm(sleep_datatest$anxiety ~ sleep_datatest$gender1 + sleep_datatest$trubslep1 + sleep_datatest$depress + sleep_datatest$stressindicators)
+summary(model3_test)
+
+PredictedAnxiety1 <- as.numeric(-0.46 + (0.25 * sleep_datatest$stressindicators) + (0.47*sleep_datatest$depress) + (0.03*as.numeric(sleep_datatest$trubslep1)) + (0.38*as.numeric(sleep_datatest$gender1)))
+
+#Correlation is performed between training data's actual anxiety score versus the predicted anxiety score found using model 3
+cor.test(sleep_datatest$anxiety,PredictedAnxiety1,method="pearson")
+
+stargazer(model3_train,model3_test, type="text")
+
+```
+
+The sleep dataset was partitioned on 85% to a training dataset(n=228) and 15% to a test dataset (n=41). 
+
+####Training dataset
+A statistically significant regression equation was found for the training dataset model (F(4,223) = 54.01, p < 0.05) with an adjusted R2 of 0.48. A respondent's anxiety score is equal to -0.26 + 0.28(stressindicators) + 0.44(depress) + 0.34(trouble sleeping) + 0.3(gender), where stress indicators and depression level are standardised continuous variables.
+
+All the four variables were statistically significant in the training dataset with p-value < 0.05.
+
+A Pearson product moment correlation was performed between the training dataset's actual anxiety scores versus the predicted anxiety score found using model3's training dataset (r = 0.7, n = 226, p < 0.05). A very strong positive correlation was found between the actual and predicted anxiety scores. Based on the test result, it is sufficiently evident that there is a statistically significant positive correlation between the two scores and it also suggests that our model does seem to be a near perfect fit for predicting anxiety scores based on the predictor variables.
+
+####Test dataset
+A statistically significant regression equation was found for the test dataset model (F(4,36) = 10.01, p < 0.05) with an adjusted R2 of 0.47. A respondent's anxiety score is equal to -0.46 + 0.25(stressindicators) + 0.47(depress) + 0.03(trouble sleeping) + 0.38(gender), where stress indicators and depression level are standardised continuous variables.
+
+The variables gender and trouble sleeping were not statistically significant with p-value > 0.05 and the variables stress indicators and depression were statistically significant with p-value < 0.05 .
+
+A Pearson product moment correlation was performed between test dataset's actual anxiety scores versus the predicted anxiety score found using model3's test dataset (r = 0.73, n = 39, p < 0.05). A very strong positive correlation was found between the actual and predicted anxiety scores. Based on the test result, it is sufficiently evident that there is a statistically significant positive correlation between the two scores and it also suggests that our model does seem to be a near perfect fit for predicting anxiety scores based on the predictor variables.
+
+
+##5. Conclusion and Discussion
+
+
+The aim of this research was to build multiple linear regression models capable of predicting HADS Anxiety Score better than just taking the mean. 
+
+All the variables of interest were checked for normality. Correlation and difference tests were performed to find if they were statistically significant or not. Based on the results, every correlation test and difference test proved to be statistically significant. 
+
+Once the significant variables were identified our baseline model was built using depression level, stress indicators as predictor variables. The model was statistically significant and was capable of predicting approximately 44.2% of the variance in anxiety levels, with all our predictors having a significant effect on the variable anxiety. Based on the results of the baseline model, our theoretical assumption that depression levels in a person and the stress they experience can be a predictor of anxiety present in them does seem to be valid and this model was significant where it was able to better predict rather than just by calculating the average.
+
+For the second model, a categorical variable Trouble Falling Asleep was added as a predictor to the baseline model, which was again statistically significant with p < 0.05. The second model was capable of predicting approximately 45.7% of the variance in anxiety, with all our predictors having a significant effect. The model was able to predict the anxiety scores better when the respondents have a problem with falling asleep.
+
+For the third model, a categorical variable Gender was added as a predictor to the second model, which was again statistically significant with p < 0.05. The third model was capable of predicting approximately 48.2% of the variance in anxiety, with all our predictors having a significant effect. The model was able to predict the anxiety scores more when the respondent's gender was female. 
+
+The three models were compared and an overall significant difference was observed p < 0.05. The second model had a lower RSE of 0.74 compared to RSE of 0.75 on the base model. The third model had a RSE of 0.72, which is lower compared to the other two models and a higher adjusted R-squared of 48.2% than the adjusted R-squared of 44.2% of the base model and adjusted R-squared of 45.7% of the second model, indicating a better predicting power from the other two models.
+
+Thus, it can be concluded that the results of the third model is statistically significant and has a better predicting power and can be sufficiently stated that the depression levels of a person, their stress levels, a respondent's trouble in falling asleep and their gender plays a significant role in predicting them experiencing anxiety levels. 
+
+Further based on the test and training data's ability to predict the anxiety scores with a large positive correlation gives us sufficient evidence to conclude that Anxiety is influenced by a person experiencing depression, having high stress levels, by their trouble falling asleep and by their gender. 
+
+With respect to future work, new variables from the dataset can be picked and added into the existing models to find if they are able to predict the anxiety levels of a respondent in a better way.
+
+## 6. References
+
+Nutt, D., Wilson, S., & Paterson L. (2008). Sleep disorders as core symptoms of depression. *PMC US National Library of Medicines*, 10(3), 329-336. Retrieved from: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3181883/
+
+Al-Abri, M. (2015). Sleep Deprivation and Depression. *PMC US National Library of Medicines*, 15(1): e4-e6. Retrieved from: https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4318605/
+
+Shlarb, A., Reis, D. & Schroder, A. (2012). Sleep Characteristics, Sleep Problems, and Associations to Quality of Life among Psychotherapists. *Sleep Disorders*. Volume 2012, 1-7. Retrieved from: http://dx.doi.org/10.1155/2012/806913
+
+Field, A., Miles, J., & Field, Z. (2012). *Discovering statistics using R. Sage publications.*
+
+George, D. (2011). *SPSS for windows step by step: A simple study guide and reference, 17.0 update, 10/e. Pearson Education India.*
+
